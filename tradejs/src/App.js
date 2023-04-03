@@ -25,7 +25,7 @@ function buildRequest(range, steps, cargo, restrictions, commodities, locations)
         if (!Object.hasOwn(req.restrictions, r.commodity)) {
             req.restrictions[r.commodity] = {}
         }
-        req.restrictions[r.commodity][r.location] = r.value
+        req.restrictions[r.commodity][r.location] = r.value * 0.01
     }
     return req
 }

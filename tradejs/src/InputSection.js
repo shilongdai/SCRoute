@@ -8,13 +8,14 @@ import {Form} from "react-bootstrap";
 import CommodityLocationInput from "./CommodityLocationInput";
 import "bootstrap/dist/css/bootstrap.css";
 import Notification from "./Notification";
+import FilterInput from "./FilterInput";
 
 
-const commodity_url = "/commodities"
-const location_url = "/locations"
+const commodity_url = "/commodities?"
+const location_url = "/locations?"
 
 
-function InputSection({onSubmit, onBlacklist, lockForm, highLevelPlan}) {
+function InputSection({onSubmit, lockForm, highLevelPlan, formError, setFormError}) {
     const [range, setRange] = useState(2);
     const [step, setStep] = useState(2);
     const [cargo, setCargo] = useState(696);
@@ -24,21 +25,35 @@ function InputSection({onSubmit, onBlacklist, lockForm, highLevelPlan}) {
     const [locOptions, setLocOptions] = useState([])
     const [restrictions, setRestrictions] = useState([])
     const [fileLocation, setFileLocation] = useState(null)
-    const [formError, setFormError] = useState(null)
+    const [filter, setFilter] = useState(".*")
 
     useEffect(() => {
         // fetch data
         const dataFetch = async (url) => {
             return await (
                 await fetch(
-                    url
+                    url + new URLSearchParams({
+                        filter: filter
+                    })
                 )
             ).json()
         };
 
         dataFetch(commodity_url).then(d => setComOptions(d))
         dataFetch(location_url).then(d => setLocOptions(d))
-    }, []);
+    }, [filter]);
+
+    useEffect(() => {
+        setLocations([...locations])
+    }, [locOptions]);
+
+    useEffect(() => {
+        setCommodities([...commodities])
+    }, [comOptions]);
+
+    useEffect(() => {
+        setRestrictions([...restrictions])
+    }, [comOptions, locOptions]);
 
     const handleRangeChange = (value) => {
         setRange(value);
@@ -128,6 +143,7 @@ function InputSection({onSubmit, onBlacklist, lockForm, highLevelPlan}) {
                 return false
             }
         }
+        setFormError(null)
         return true
     }
 
@@ -138,7 +154,7 @@ function InputSection({onSubmit, onBlacklist, lockForm, highLevelPlan}) {
             event.stopPropagation();
             return
         }
-        onSubmit(range, step, cargo, commodities, locations, restrictions);
+        onSubmit(range, step, cargo, commodities, locations, restrictions, filter);
     };
 
     const addBlacklist = (newRestrictions, transactions) => {
@@ -163,6 +179,7 @@ function InputSection({onSubmit, onBlacklist, lockForm, highLevelPlan}) {
             cargo: cargo,
             range: range,
             step: step,
+            filter: filter,
             commodities: commodities,
             locations: locations,
             restrictions: restrictions
@@ -177,18 +194,21 @@ function InputSection({onSubmit, onBlacklist, lockForm, highLevelPlan}) {
             reader.addEventListener("loadend", (_) => {
                 try {
                     const settings = JSON.parse(reader.result)
-                    if(Object.hasOwn(settings, "cargo")) {
+                    if (Object.hasOwn(settings, "cargo")) {
                         setCargo(Number(settings.cargo))
                     }
-                    if(Object.hasOwn(settings, "range")) {
+                    if (Object.hasOwn(settings, "range")) {
                         setRange(Number(settings.range))
                     }
-                    if(Object.hasOwn(settings, "step")) {
+                    if (Object.hasOwn(settings, "step")) {
                         setStep(Number(settings.step))
                     }
-                    if(Object.hasOwn(settings, "commodities")) {
+                    if (Object.hasOwn(settings, "filter")) {
+                        setFilter(String(settings.filter))
+                    }
+                    if (Object.hasOwn(settings, "commodities")) {
                         const coms = []
-                        for(const c of settings.commodities) {
+                        for (const c of settings.commodities) {
                             coms.push({
                                 name: c.name,
                                 amount: Number(c.amount)
@@ -196,16 +216,16 @@ function InputSection({onSubmit, onBlacklist, lockForm, highLevelPlan}) {
                         }
                         setCommodities(coms)
                     }
-                    if(Object.hasOwn(settings, "locations")) {
+                    if (Object.hasOwn(settings, "locations")) {
                         const locs = []
-                        for(const c of settings.locations) {
+                        for (const c of settings.locations) {
                             locs.push(String(c))
                         }
                         setLocations(locs)
                     }
-                    if(Object.hasOwn(settings, "restrictions")) {
+                    if (Object.hasOwn(settings, "restrictions")) {
                         const res = []
-                        for(const c of settings.restrictions) {
+                        for (const c of settings.restrictions) {
                             res.push({
                                 commodity: String(c.commodity),
                                 location: String(c.location),
@@ -227,14 +247,17 @@ function InputSection({onSubmit, onBlacklist, lockForm, highLevelPlan}) {
     return (
         <Form onSubmit={handleSubmit} noValidate>
             <div className="form-row mb-3">
-                <div className="col-md-6">
+                <div className="col-md-8">
                     <RangeInput value={range} onChange={handleRangeChange}/>
                 </div>
-                <div className="col-md-6">
+                <div className="col-md-8">
                     <StepInput value={step} onChange={handleStepChange}/>
                 </div>
-                <div className="col-md-6">
+                <div className="col-md-8">
                     <CargoInput value={Number(cargo)} onChange={handleCargoChange}/>
+                </div>
+                <div className="col-md-8">
+                    <FilterInput value={filter} onChange={setFilter}/>
                 </div>
             </div>
 

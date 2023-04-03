@@ -20,7 +20,7 @@ function CommodityInput({index, value, name, options, onChange, onRemove}) {
     return (
         <div key={index} className="commodity-input row mb-3">
             <Typeahead name="name" placeholder={"Commodity"}
-                       selected={options.includes(name) ? [name] : []} onChange={handleNameChange}
+                       selected={name ? [name] : []} onChange={handleNameChange}
                        onInputChange={handleNameChange}
                        className="commodity-select col-md-4"
                        {...options.includes(name) ? {valid: true} : {isInvalid: true}}

@@ -34,7 +34,7 @@ function CommodityLocationInput({index, location, commodity, value, com_options,
                     <Typeahead
                         name="location"
                         placeholder="Location"
-                        selected={loc_options.includes(location) ? [location] : []}
+                        selected={location ? [location] : []}
                         onChange={handleLocNameChange}
                         onInputChange={handleLocNameChange}
                         className="location-select"
@@ -50,7 +50,7 @@ function CommodityLocationInput({index, location, commodity, value, com_options,
                     <Typeahead
                         name="commodity"
                         placeholder="Commodity"
-                        selected={com_options.includes(commodity) ? [commodity] : []}
+                        selected={commodity ? [commodity] : []}
                         onChange={handleComNameChange}
                         onInputChange={handleComNameChange}
                         className="commodity-select"

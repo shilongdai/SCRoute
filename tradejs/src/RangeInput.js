@@ -13,7 +13,7 @@ function RangeInput({value, onChange}) {
                 <input
                     type="range"
                     className="form-control-range"
-                    min={2}
+                    min={0}
                     max={10}
                     value={value}
                     onChange={handleInputChange}

@@ -8,6 +8,7 @@ from itertools import zip_longest
 from itertools import product
 import math
 from cachetools import TTLCache
+import re
 
 Shop = namedtuple("Shop", "path buys sells")
 Commodity = namedtuple("Commodity", "name price stock refresh")
@@ -458,39 +459,66 @@ with open("shops.json", "r") as fp:
 local = threading.local()
 
 
-def get_valid_shops():
+def get_valid_shops(filter_regex):
     paths = set()
+    try:
+        filter_func = create_filter(filter_regex)
+    except re.error:
+        return []
     for s in shops:
-        paths.add(s.path)
+        if filter_func(s.path):
+            paths.add(s.path)
     return list(paths)
 
 
-def get_valid_coms():
+def get_valid_coms(filter_regex):
     coms = set()
+    try:
+        filter_func = create_filter(filter_regex)
+    except re.error:
+        return []
     for s in shops:
-        for c in s.buys:
-            coms.add(c.name)
-        for c in s.sells:
-            coms.add(c.name)
+        if filter_func(s.path):
+            for c in s.buys:
+                coms.add(c.name)
+            for c in s.sells:
+                coms.add(c.name)
     return list(coms)
 
 
-def get_solver(s_id):
+def create_filter(regex):
+    pattern = re.compile(regex)
+    return lambda text: pattern.search(text)
+
+
+DEFAULT_RESULT = HighLevelPlan(0, 0, [], []), []
+
+
+def null_solver(**kwargs):
+    return DEFAULT_RESULT
+
+
+def get_solver(filter_regex):
     try:
         _ = local.solver_cache
     except AttributeError:
         local.solver_cache = TTLCache(maxsize=128, ttl=timedelta(hours=12).seconds)
-
-    if "ts_planner_" + str(s_id) in local.solver_cache:
-        ts_planner = local.solver_cache["ts_planner_" + str(s_id)]
-    else:
-        ts_planner = HighLevelPlanner(shops, solver="SCIP", ignore_dpp=True)
-        local.solver_cache["ts_planner_" + str(s_id)] = ts_planner
-    if "tl_planner_" + str(s_id) in local.solver_cache:
-        tl_planner = local.solver_cache["tl_planner_" + str(s_id)]
-    else:
-        tl_planner = LowLevelRoutePlanner(solver="SCIP")
-        local.solver_cache["tl_planner_" + str(s_id)] = tl_planner
+    try:
+        filter_func = create_filter(filter_regex)
+        if "ts_planner_" + filter_regex in local.solver_cache:
+            ts_planner = local.solver_cache["ts_planner_" + filter_regex]
+        else:
+            filtered_shops = list(filter(lambda s: filter_func(s.path), shops))
+            ts_planner = HighLevelPlanner(filtered_shops, solver="SCIP", ignore_dpp=True)
+            local.solver_cache["ts_planner_" + filter_regex] = ts_planner
+        if "tl_planner" in local.solver_cache:
+            tl_planner = local.solver_cache["tl_planner"]
+        else:
+            tl_planner = LowLevelRoutePlanner(solver="SCIP")
+            local.solver_cache["tl_planner"] = tl_planner
+    except Exception as e:
+        print(e)
+        return null_solver
 
     def solve_problem(max_cargo, max_stops, max_range, blk_locs, com_restricts, restrictions):
         _, plan = ts_planner.plan_stage_one(max_cargo, max_percent=1,
@@ -499,8 +527,8 @@ def get_solver(s_id):
                                             blk_locations=blk_locs,
                                             max_commodity=com_restricts,
                                             max_com_loc=restrictions)
-        if plan is None:
-            return HighLevelPlan(0, 0, [], []), []
+        if plan is None or len(plan.buy) == 0:
+            return DEFAULT_RESULT
         num_max = 1
         cost, routes = tl_planner.plan_route(max_cargo, num_max, plan)
         while routes is None:

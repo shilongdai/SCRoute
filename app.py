@@ -1,13 +1,8 @@
-from flask import Flask, request, jsonify, session, send_from_directory
-from flask_session import Session
-import uuid
+from flask import Flask, request, jsonify, send_from_directory
 from optimize import *
 
 
 app = Flask(__name__)
-app.config["SESSION_PERMANENT"] = False
-app.config["SESSION_TYPE"] = "filesystem"
-Session(app)
 
 
 class BadRequestException(Exception):
@@ -55,21 +50,24 @@ def serve_home_page():
 
 @app.route("/locations")
 def retrieve_locations():
-    locs = get_valid_shops()
+    filter_regex = ".*"
+    if "filter" in request.args:
+        filter_regex = request.args["filter"]
+    locs = get_valid_shops(filter_regex)
     return jsonify(locs)
 
 
 @app.route("/commodities")
 def retrieve_commodities():
-    coms = get_valid_coms()
+    filter_regex = ".*"
+    if "filter" in request.args:
+        filter_regex = request.args["filter"]
+    coms = get_valid_coms(filter_regex)
     return jsonify(coms)
 
 
 @app.route('/optimize', methods=["POST"])
 def optimize():
-    if "id" not in session:
-        session["id"] = uuid.uuid4()
-    current_id = session["id"]
     trade_info = request.json
     try:
         max_range = int(trade_info["max_range"])
@@ -87,12 +85,17 @@ def optimize():
         restrictions = {}
         if "restrictions" in trade_info:
             restrictions = trade_info["restrictions"]
+
+        filter_regex = r".*"
+        if "filter" in trade_info:
+            filter_regex = trade_info["filter"]
     except (KeyError, ValueError):
         raise BadRequestException()
-    if max_range <= 0:
+    if max_range < 0:
         raise BadRequestException()
 
-    plan, routes = get_solver(current_id)(max_cargo, stops, max_range, blk_locs, max_commodities, restrictions)
+    plan, routes = get_solver(filter_regex)(max_cargo, stops, max_range, blk_locs, max_commodities, restrictions)
+
     final_map = {
         "plan": convert_plan(plan),
         "routes": convert_route(routes)

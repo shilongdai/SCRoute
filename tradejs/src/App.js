@@ -9,14 +9,15 @@ import ResultSection from "./ResultSection";
 const opt_endpoint = "/optimize"
 
 
-function buildRequest(range, steps, cargo, restrictions, commodities, locations) {
+function buildRequest(range, steps, cargo, restrictions, commodities, locations, filter) {
     const req = {
         max_range: range,
         max_cargo: cargo * 100,
         stops: steps,
         max_commodity: {},
         restrictions: {},
-        blk_locations: locations
+        blk_locations: locations,
+        filter: filter
     }
     for (const c of commodities) {
         req.max_commodity[c.name] = c.amount * 0.01
@@ -35,6 +36,7 @@ function App() {
     const [highLevelPlan, setHighLevelPlan] = useState(null);
     const [tradeRoute, setTradeRoute] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [formError, setFormError] = useState(null)
 
     function setResult(plan, route) {
         setHighLevelPlan(plan);
@@ -42,14 +44,25 @@ function App() {
         setLoading(false)
     }
 
-    const handleSubmit = (range, steps, cargo, commodities, locations, restrictions) => {
+    const handleSubmit = (range, steps, cargo, commodities, locations, restrictions, filter) => {
         const requestOptions = {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(buildRequest(range, steps, cargo, restrictions, commodities, locations))
+            body: JSON.stringify(buildRequest(range, steps, cargo, restrictions, commodities, locations, filter))
         };
         setLoading(true)
-        fetch(opt_endpoint, requestOptions).then(response => response.json()).then(data => setResult(data.plan, data.routes))
+        fetch(opt_endpoint, requestOptions).then(async response => {
+            if (!response.ok) {
+                setResult(null, null)
+                const text = await response.text()
+                throw Error(text)
+            } else {
+                return response.json()
+            }
+        }).then(data => setResult(data.plan, data.routes)).catch(error => {
+            setFormError(error.message)
+            setResult(null, null)
+        })
 
     };
 
@@ -60,6 +73,8 @@ function App() {
                     <InputSection onSubmit={handleSubmit}
                                   lockForm={loading}
                                   highLevelPlan={highLevelPlan}
+                                  formError={formError}
+                                  setFormError={setFormError}
                     />
                 </div>
                 <div className="col-lg-6 mt-4 mt-lg-2">

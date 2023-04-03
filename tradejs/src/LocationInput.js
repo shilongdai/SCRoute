@@ -19,7 +19,7 @@ function LocationInput({key, index, value, options, onChange, onRemove}) {
             <Typeahead
                 className="location-select col-md-8"
                 placeholder="Location"
-                selected={options.includes(value) ? [value] : []}
+                selected={value ? [value] : []}
                 onChange={handleLocationChange}
                 onInputChange={handleLocationChange}
                 options={options}

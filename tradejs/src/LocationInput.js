@@ -1,15 +1,17 @@
 import React, {useEffect, useState} from 'react';
 import {Typeahead} from 'react-bootstrap-typeahead';
 import 'react-bootstrap-typeahead/css/Typeahead.css';
-
-
-const location_url = "/locations"
+import {FaTrash} from "react-icons/fa";
+import {Button} from "react-bootstrap";
 
 
 function LocationInput({key, index, value, options, onChange, onRemove}) {
 
     const handleLocationChange = (val) => {
-        onChange(index, val[0]);
+        if(Array.isArray(val)) {
+            val = val[0]
+        }
+        onChange(index, val);
     };
 
     return (
@@ -19,15 +21,19 @@ function LocationInput({key, index, value, options, onChange, onRemove}) {
                 placeholder="Location"
                 selected={options.includes(value) ? [value] : []}
                 onChange={handleLocationChange}
+                onInputChange={handleLocationChange}
                 options={options}
                 {...options.includes(value) ? {} : {isInvalid: true}}
                 disabled={options.length === 0}
                 required={true}
             />
             <div className="col-md-4 d-flex mr-2 align-items-end">
-                <button type="button" className="btn btn-danger" onClick={() => onRemove(index)}>
-                    Remove
-                </button>
+                <Button
+                    onClick={() => onRemove(index)}
+                    variant={"danger"}
+                >
+                    <FaTrash></FaTrash>
+                </Button>
             </div>
         </div>
     );

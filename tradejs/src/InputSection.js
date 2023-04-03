@@ -4,15 +4,15 @@ import CargoInput from "./CargoInput";
 import CommodityInput from "./CommodityInput";
 import LocationInput from "./LocationInput";
 import StepInput from "./StepInput";
-import {Fade, Form} from "react-bootstrap";
-import Notification from "./Notification";
+import {Form} from "react-bootstrap";
+import CommodityLocationInput from "./CommodityLocationInput";
 
 
 const commodity_url = "/commodities"
 const location_url = "/locations"
 
 
-function InputSection({onSubmit, onBlacklistReset, onBlacklist, lockForm}) {
+function InputSection({onSubmit, onBlacklist, lockForm, highLevelPlan}) {
     const [range, setRange] = useState(2);
     const [step, setStep] = useState(2);
     const [cargo, setCargo] = useState(696);
@@ -20,8 +20,7 @@ function InputSection({onSubmit, onBlacklistReset, onBlacklist, lockForm}) {
     const [locations, setLocations] = useState([]);
     const [comOptions, setComOptions] = useState([])
     const [locOptions, setLocOptions] = useState([])
-    const [showBlkNotification, setShowBlkNotification] = useState(false);
-    const [showResetNotification, setResetNotification] = useState(false);
+    const [restrictions, setRestrictions] = useState([])
 
     useEffect(() => {
         // fetch data
@@ -84,6 +83,25 @@ function InputSection({onSubmit, onBlacklistReset, onBlacklist, lockForm}) {
         setCommodities(newCommodities);
     };
 
+    const handleComLocChange = (index, com, loc, val) => {
+        const newRestrictions = [...restrictions]
+        newRestrictions[index].commodity = com;
+        newRestrictions[index].location = loc
+        newRestrictions[index].value = val
+        setRestrictions(newRestrictions)
+    };
+
+    const handleAddComLoc = () => {
+        const newRestrictions = [...restrictions, {commodity: "", location: "", value: 100}]
+        setRestrictions(newRestrictions)
+    }
+
+    const handleRemoveComLoc = (index) => {
+        const newRestrictions = [...restrictions]
+        newRestrictions.splice(index, 1);
+        setRestrictions(newRestrictions)
+    }
+
     const validateForm = (form) => {
         if (!form.checkValidity()) {
             return false
@@ -98,6 +116,14 @@ function InputSection({onSubmit, onBlacklistReset, onBlacklist, lockForm}) {
                 return false
             }
         }
+        for(const r of restrictions) {
+            if (!locOptions.includes(r.location)) {
+                return false
+            }
+            if (!comOptions.includes(r.commodity)) {
+                return false
+            }
+        }
         return true
     }
 
@@ -108,20 +134,25 @@ function InputSection({onSubmit, onBlacklistReset, onBlacklist, lockForm}) {
             event.stopPropagation();
             return
         }
-        setShowBlkNotification(false)
-        setResetNotification(false)
-        onSubmit(range, step, cargo, commodities, locations);
+        onSubmit(range, step, cargo, commodities, locations, restrictions);
     };
+
+    const addBlacklist = (newRestrictions, transactions) => {
+        if (transactions) {
+            for(const t of transactions) {
+                newRestrictions.push({location: t.location, commodity: t.commodity, value: 0})
+            }
+        }
+    }
 
     const handleBlacklist = () => {
-        onBlacklist()
-        setShowBlkNotification(true)
-    };
-
-    const handleBlacklistReset = () => {
-        onBlacklistReset();
-        setResetNotification(true)
-    };
+        const newRestrictions = [...restrictions]
+        if (highLevelPlan) {
+            addBlacklist(newRestrictions, highLevelPlan.buyTransactions)
+            addBlacklist(newRestrictions, highLevelPlan.sellTransactions)
+        }
+        setRestrictions(newRestrictions)
+    }
 
     return (
         <Form onSubmit={handleSubmit} noValidate>
@@ -160,6 +191,20 @@ function InputSection({onSubmit, onBlacklistReset, onBlacklist, lockForm}) {
                 />
             ))}
 
+            {restrictions.map((restriction, index) => (
+                <CommodityLocationInput
+                    key={index}
+                    index={index}
+                    value={restriction.value}
+                    commodity={restriction.commodity}
+                    location={restriction.location}
+                    onChange={handleComLocChange}
+                    onRemove={handleRemoveComLoc}
+                    com_options={comOptions}
+                    loc_options={locOptions}
+                />
+            ))}
+
             <div className="form-row mb-3">
                 <div className="col-md-6">
                     <div className="btn-group">
@@ -168,14 +213,21 @@ function InputSection({onSubmit, onBlacklistReset, onBlacklist, lockForm}) {
                             className="btn btn-secondary"
                             onClick={handleAddCommodity}
                         >
-                            Max Commodity
+                            Commodity
                         </button>
                         <button
                             type="button"
                             className="btn btn-secondary"
                             onClick={handleAddLocation}
                         >
-                            Remove Location
+                            Location
+                        </button>
+                        <button
+                            type="button"
+                            className="btn btn-secondary"
+                            onClick={handleAddComLoc}
+                        >
+                            Tuning
                         </button>
                         <button
                             type="button"
@@ -183,15 +235,7 @@ function InputSection({onSubmit, onBlacklistReset, onBlacklist, lockForm}) {
                             onClick={handleBlacklist}
                             disabled={lockForm}
                         >
-                            Blacklist Plan
-                        </button>
-                        <button
-                            type="button"
-                            className="btn btn-danger"
-                            onClick={handleBlacklistReset}
-                            disabled={lockForm}
-                        >
-                            Reset Blacklist
+                            Blacklist
                         </button>
                     </div>
                 </div>
@@ -203,23 +247,6 @@ function InputSection({onSubmit, onBlacklistReset, onBlacklist, lockForm}) {
                         Submit
                     </button>
                 </div>
-            </div>
-
-            <div className="form-row col-md-7 mb-4">
-                {showBlkNotification && (
-                    <Notification
-                        message={"Plan Blacklisted"}
-                        onClose={() => setShowBlkNotification(false)}
-                        type={"success"}
-                    />
-                )}
-                {showResetNotification && (
-                    <Notification
-                        message={"Blacklist cleared"}
-                        onClose={() => setResetNotification(false)}
-                        type={"success"}
-                    />
-                )}
             </div>
         </Form>
 

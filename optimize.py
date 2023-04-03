@@ -313,6 +313,8 @@ class LowLevelRoutePlanner:
             self._D.value[com_idx[t.com_idx], shop_idx[t.loc_idx]] = t.amount
         cost = self._prob.solve(solver=self.solver)
         if math.isfinite(cost):
+            self._I.value[np.where(self._I.value < EPSILON)] = 0
+            self._L.value[np.where(self._L.value < EPSILON)] = 0
             return cost, self._extract_route(max_visits, shop_rev_idx, com_rev_idx)
         return cost, None
 
@@ -321,23 +323,29 @@ class LowLevelRoutePlanner:
         final_routes = []
 
         cur_start = "start"
+        working_dest = ""
+        working_buy = []
+        working_sell = []
         while cur_idx != self._X.value.shape[0] - 1:
             shop_i = int(math.floor(cur_idx / max_visits))
-            shop_name = rev_shop_idx[shop_i]
-            cur_end = shop_name
-            buy_transactions = []
-            sell_transactions = []
+            cur_end = rev_shop_idx[shop_i]
+            new_route = cur_end != working_dest
+            if new_route:
+                working_dest = cur_end
+                working_buy = []
+                working_sell = []
 
             for com in np.nonzero(self._I.value[:, cur_idx])[0]:
-                buy_transactions.append(Transaction(rev_shop_idx[shop_i],
-                                                    rev_com_idx[com],
-                                                    self._I.value[com, cur_idx]))
+                working_buy.append(Transaction(rev_shop_idx[shop_i],
+                                               rev_com_idx[com],
+                                               self._I.value[com, cur_idx]))
             for com in np.nonzero(self._L.value[:, cur_idx])[0]:
-                sell_transactions.append(Transaction(rev_shop_idx[shop_i],
-                                                     rev_com_idx[com],
-                                                     self._L.value[com, cur_idx]))
-            final_routes.append(RoutePath(cur_start, cur_end, buy_transactions, sell_transactions))
-            cur_start = shop_name
+                working_sell.append(Transaction(rev_shop_idx[shop_i],
+                                                rev_com_idx[com],
+                                                self._L.value[com, cur_idx]))
+            if new_route:
+                final_routes.append(RoutePath(cur_start, working_dest, working_buy, working_sell))
+            cur_start = cur_end
             cur_idx = np.nonzero(self._X.value[cur_idx, :])[0][0]
         return final_routes
 
@@ -446,7 +454,6 @@ with open("shops.json", "r") as fp:
         sells = [Commodity(*s) for s in sell_temp]
 
         shops.append(Shop(path, buys, sells))
-
 
 local = threading.local()
 

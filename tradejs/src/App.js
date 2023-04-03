@@ -1,7 +1,6 @@
 import "bootstrap/dist/css/bootstrap.css";
 import "./index.css"
 import React, {useState} from "react";
-import {Spinner} from 'react-bootstrap';
 import Header from "./Header";
 import InputSection from "./InputSection";
 import ResultSection from "./ResultSection";
@@ -16,11 +15,17 @@ function buildRequest(range, steps, cargo, restrictions, commodities, locations)
         max_cargo: cargo * 100,
         stops: steps,
         max_commodity: {},
-        restrictions: restrictions,
+        restrictions: {},
         blk_locations: locations
     }
     for (const c of commodities) {
         req.max_commodity[c.name] = c.amount * 0.01
+    }
+    for (const r of restrictions) {
+        if (!Object.hasOwn(req.restrictions, r.commodity)) {
+            req.restrictions[r.commodity] = {}
+        }
+        req.restrictions[r.commodity][r.location] = r.value
     }
     return req
 }
@@ -29,7 +34,6 @@ function buildRequest(range, steps, cargo, restrictions, commodities, locations)
 function App() {
     const [highLevelPlan, setHighLevelPlan] = useState(null);
     const [tradeRoute, setTradeRoute] = useState(null);
-    const [restrictions, setRestrictions] = useState({})
     const [loading, setLoading] = useState(false);
 
     function setResult(plan, route) {
@@ -38,7 +42,7 @@ function App() {
         setLoading(false)
     }
 
-    const handleSubmit = (range, steps, cargo, commodities, locations) => {
+    const handleSubmit = (range, steps, cargo, commodities, locations, restrictions) => {
         const requestOptions = {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -49,36 +53,14 @@ function App() {
 
     };
 
-    const addBlacklist = (newRestrictions, transactions) => {
-        if(transactions) {
-            for (const t of transactions) {
-                if (!Object.hasOwn(newRestrictions, t.commodity)) {
-                    newRestrictions[t.commodity] = {}
-                }
-                newRestrictions[t.commodity][t.location] = 0
-            }
-        }
-    }
-
-    const handleBlacklist = () => {
-        const newRestrictions = structuredClone(restrictions)
-        if(highLevelPlan) {
-            addBlacklist(newRestrictions, highLevelPlan.buyTransactions)
-            addBlacklist(newRestrictions, highLevelPlan.sellTransactions)
-        }
-        setRestrictions(newRestrictions)
-    }
-
-    const handleReset = () => {
-        setRestrictions({})
-    }
-
     return (<div className="container">
             <Header/>
             <div className="row">
                 <div className="col-lg-6">
-                    <InputSection onSubmit={handleSubmit} onBlacklistReset={handleReset}
-                                  onBlacklist={handleBlacklist} lockForm={loading}/>
+                    <InputSection onSubmit={handleSubmit}
+                                  lockForm={loading}
+                                  highLevelPlan={highLevelPlan}
+                    />
                 </div>
                 <div className="col-lg-6 mt-4 mt-lg-2">
                     {loading && (

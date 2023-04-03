@@ -91,8 +91,6 @@ def optimize():
         raise BadRequestException()
     if max_range <= 0:
         raise BadRequestException()
-    if "past_plans" not in session:
-        session["past_plans"] = []
 
     plan, routes = get_solver(current_id)(max_cargo, stops, max_range, blk_locs, max_commodities, restrictions)
     final_map = {

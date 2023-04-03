@@ -1,15 +1,16 @@
-import React, {useEffect, useState} from 'react';
+import React from 'react';
 import {Typeahead} from 'react-bootstrap-typeahead';
 import 'react-bootstrap-typeahead/css/Typeahead.css';
-
-
-const commodity_url = "/commodities"
+import {FaTrash} from "react-icons/fa";
+import {Button} from "react-bootstrap";
 
 
 function CommodityInput({index, value, name, options, onChange, onRemove}) {
 
     const handleNameChange = (newName) => {
-        newName = newName[0]
+        if(Array.isArray(newName)) {
+            newName = newName[0]
+        }
         onChange(index, newName, value);
     };
     const handleValueChange = (event) => {
@@ -20,6 +21,7 @@ function CommodityInput({index, value, name, options, onChange, onRemove}) {
         <div key={index} className="commodity-input row mb-3">
             <Typeahead name="name" placeholder={"Commodity"}
                        selected={options.includes(name) ? [name] : []} onChange={handleNameChange}
+                       onInputChange={handleNameChange}
                        className="commodity-select col-md-4"
                        {...options.includes(name) ? {valid: true} : {isInvalid: true}}
                        disabled={options.length === 0}
@@ -35,9 +37,12 @@ function CommodityInput({index, value, name, options, onChange, onRemove}) {
                 </div>
             </div>
             <div className="col-md-4 d-flex align-items-center">
-                <button type="button" onClick={() => onRemove(index)} className="btn btn-danger">
-                    Remove
-                </button>
+                <Button
+                    onClick={() => onRemove(index)}
+                    variant={"danger"}
+                >
+                    <FaTrash></FaTrash>
+                </Button>
             </div>
         </div>
     );

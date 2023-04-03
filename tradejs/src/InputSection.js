@@ -6,6 +6,8 @@ import LocationInput from "./LocationInput";
 import StepInput from "./StepInput";
 import {Form} from "react-bootstrap";
 import CommodityLocationInput from "./CommodityLocationInput";
+import "bootstrap/dist/css/bootstrap.css";
+import Notification from "./Notification";
 
 
 const commodity_url = "/commodities"
@@ -21,6 +23,8 @@ function InputSection({onSubmit, onBlacklist, lockForm, highLevelPlan}) {
     const [comOptions, setComOptions] = useState([])
     const [locOptions, setLocOptions] = useState([])
     const [restrictions, setRestrictions] = useState([])
+    const [fileLocation, setFileLocation] = useState(null)
+    const [formError, setFormError] = useState(null)
 
     useEffect(() => {
         // fetch data
@@ -116,7 +120,7 @@ function InputSection({onSubmit, onBlacklist, lockForm, highLevelPlan}) {
                 return false
             }
         }
-        for(const r of restrictions) {
+        for (const r of restrictions) {
             if (!locOptions.includes(r.location)) {
                 return false
             }
@@ -139,7 +143,7 @@ function InputSection({onSubmit, onBlacklist, lockForm, highLevelPlan}) {
 
     const addBlacklist = (newRestrictions, transactions) => {
         if (transactions) {
-            for(const t of transactions) {
+            for (const t of transactions) {
                 newRestrictions.push({location: t.location, commodity: t.commodity, value: 0})
             }
         }
@@ -152,6 +156,72 @@ function InputSection({onSubmit, onBlacklist, lockForm, highLevelPlan}) {
             addBlacklist(newRestrictions, highLevelPlan.sellTransactions)
         }
         setRestrictions(newRestrictions)
+    }
+
+    const create_settings = () => {
+        const settings = {
+            cargo: cargo,
+            range: range,
+            step: step,
+            commodities: commodities,
+            locations: locations,
+            restrictions: restrictions
+        }
+        return JSON.stringify(settings)
+    }
+
+    const load_settings = (event) => {
+        const reader = new FileReader()
+        try {
+            reader.readAsText(event.target.files[0])
+            reader.addEventListener("loadend", (_) => {
+                try {
+                    const settings = JSON.parse(reader.result)
+                    if(Object.hasOwn(settings, "cargo")) {
+                        setCargo(Number(settings.cargo))
+                    }
+                    if(Object.hasOwn(settings, "range")) {
+                        setRange(Number(settings.range))
+                    }
+                    if(Object.hasOwn(settings, "step")) {
+                        setStep(Number(settings.step))
+                    }
+                    if(Object.hasOwn(settings, "commodities")) {
+                        const coms = []
+                        for(const c of settings.commodities) {
+                            coms.push({
+                                name: c.name,
+                                amount: Number(c.amount)
+                            })
+                        }
+                        setCommodities(coms)
+                    }
+                    if(Object.hasOwn(settings, "locations")) {
+                        const locs = []
+                        for(const c of settings.locations) {
+                            locs.push(String(c))
+                        }
+                        setLocations(locs)
+                    }
+                    if(Object.hasOwn(settings, "restrictions")) {
+                        const res = []
+                        for(const c of settings.restrictions) {
+                            res.push({
+                                commodity: String(c.commodity),
+                                location: String(c.location),
+                                value: Number(c.value)
+                            })
+                        }
+                        setRestrictions(res)
+                    }
+                } catch (parse_error) {
+                    setFormError(parse_error.message)
+                }
+            })
+        } catch (e) {
+            setFormError(e.message)
+        }
+        setFileLocation(event.target.value)
     }
 
     return (
@@ -241,13 +311,44 @@ function InputSection({onSubmit, onBlacklist, lockForm, highLevelPlan}) {
                 </div>
             </div>
 
-            <div className="form-row mb-4">
-                <div className="col-md-12">
-                    <button type="submit" className="btn btn-primary btn-block" disabled={lockForm}>
+            <div className="d-flex flex-row form-row justify-content-start mb-3">
+                <div className="me-3">
+                    <button type="submit" className="btn btn-primary" disabled={lockForm}>
                         Submit
                     </button>
                 </div>
+                <div className="me-3">
+                    <a className="btn btn-secondary"
+                       href={`data:text/json;charset=utf-8,${encodeURIComponent(
+                           create_settings()
+                       )}`}
+                       download="scroute_settings.json">
+                        Save Settings
+                    </a>
+                </div>
+                <div>
+                    <input
+                        type="file"
+                        id={"settingFileUpload"}
+                        style={{display: "none"}}
+                        value={fileLocation}
+                        onChange={load_settings}
+                    />
+                    <button className="btn btn-secondary"
+                            onClick={(event) => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                document.getElementById("settingFileUpload").click()
+                            }}>
+                        Load Settings
+                    </button>
+                </div>
             </div>
+            {formError &&
+                <Notification onClose={() => {
+                    setFormError(null)
+                }} message={formError} type={"danger"}/>
+            }
         </Form>
 
     );

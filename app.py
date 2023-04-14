@@ -66,10 +66,41 @@ def retrieve_commodities():
     return jsonify(coms)
 
 
+@app.route("/<ops>/stocks", methods=["POST"])
+def retrieve_stock(ops):
+    result = {}
+    try:
+        stock_request = request.json
+        for loc in stock_request:
+            buy_idx = shop_buy_index[loc]
+            sell_idx = shop_sell_index[loc]
+            result[loc] = {}
+
+            for com in stock_request[loc]:
+                com_lookup = buy_idx
+                if ops == "buy":
+                    pass
+                elif ops == "sell":
+                    com_lookup = sell_idx
+                else:
+                    raise BadRequestException
+
+                shop_idx, com_idx = com_lookup[com]
+                if ops == "buy":
+                    result[loc][com] = shops[shop_idx].sells[com_idx].stock
+                else:
+                    result[loc][com] = shops[shop_idx].buys[com_idx].stock
+        return jsonify(result)
+
+    except (KeyError, ValueError):
+        raise BadRequestException()
+
+
 @app.route('/optimize', methods=["POST"])
 def optimize():
-    trade_info = request.json
     try:
+        trade_info = request.json
+
         max_range = int(trade_info["max_range"])
         max_cargo = int(trade_info["max_cargo"])
         stops = int(trade_info["stops"])

@@ -456,6 +456,25 @@ with open("shops.json", "r") as fp:
 
         shops.append(Shop(path, buys, sells))
 
+
+shop_buy_index = {}
+for i, s in enumerate(shops):
+    shop_buy_index[s.path] = {}
+
+    for j, c in enumerate(s.sells):
+        if c.name not in shop_buy_index[s.path]:
+            shop_buy_index[s.path][c.name] = (i, j)
+
+
+shop_sell_index = {}
+for i, s in enumerate(shops):
+    shop_sell_index[s.path] = {}
+
+    for j, c in enumerate(s.buys):
+        if c.name not in shop_sell_index[s.path]:
+            shop_sell_index[s.path][c.name] = (i, j)
+
+
 local = threading.local()
 
 

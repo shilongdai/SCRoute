@@ -1,6 +1,15 @@
-import React from 'react';
+import React, {useEffect, useState} from 'react';
+
+
+const buy_endpoint = "/buy/stocks"
+const sell_endpoint = "/sell/stocks"
+
 
 const ResultSection = ({highLevelPlan, tradeRoute}) => {
+
+    const [buyStock, setBuyStock] = useState({})
+    const [sellStock, setSellStock] = useState({})
+
     // Create a new array to group transactions by location
     const transactionsByLocation = [];
     for (const transaction of highLevelPlan.buyTransactions.concat(highLevelPlan.sellTransactions)) {
@@ -16,6 +25,33 @@ const ResultSection = ({highLevelPlan, tradeRoute}) => {
             location.sellTransactions.push(transaction);
         }
     }
+
+    const transactions_to_stock = (plan) => {
+        const req = {}
+        for (const transaction of plan) {
+            if (!req[transaction.location]) {
+                req[transaction.location] = []
+            }
+            req[transaction.location].push(transaction.commodity)
+        }
+        return req
+    }
+
+    useEffect(() => {
+        const buyOptions = {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(transactions_to_stock(highLevelPlan.buyTransactions))
+        };
+        const sellOptions = {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(transactions_to_stock(highLevelPlan.sellTransactions))
+        };
+
+        fetch(buy_endpoint, buyOptions).then(response => response.json()).then(data => setBuyStock(data))
+        fetch(sell_endpoint, sellOptions).then(response => response.json()).then(data => setSellStock(data))
+    }, [highLevelPlan])
 
     // Calculate the total cost and revenue of the high level plan
     const totalCost = highLevelPlan.cost
@@ -78,6 +114,7 @@ const ResultSection = ({highLevelPlan, tradeRoute}) => {
                                     <thead>
                                     <tr>
                                         <th>Commodity</th>
+                                        <th>Max. Stock</th>
                                         <th>Amount</th>
                                         <th>Type</th>
                                     </tr>
@@ -86,6 +123,8 @@ const ResultSection = ({highLevelPlan, tradeRoute}) => {
                                     {location.buyTransactions.map(transaction => (
                                         <tr key={transaction.commodity}>
                                             <td>{transaction.commodity}</td>
+                                            <td>{buyStock[transaction.location] && buyStock[transaction.location][transaction.commodity] ?
+                                                (buyStock[transaction.location][transaction.commodity] / 100).toFixed(1) : "-"}</td>
                                             <td>{(transaction.amount / 100).toFixed(1)}</td>
                                             <td>Buy</td>
                                         </tr>
@@ -93,6 +132,8 @@ const ResultSection = ({highLevelPlan, tradeRoute}) => {
                                     {location.sellTransactions.map(transaction => (
                                         <tr key={transaction.commodity}>
                                             <td>{transaction.commodity}</td>
+                                            <td>{sellStock[transaction.location] && sellStock[transaction.location][transaction.commodity] ?
+                                                (sellStock[transaction.location][transaction.commodity] / 100).toFixed(1) : "-"}</td>
                                             <td>{(transaction.amount / 100).toFixed(1)}</td>
                                             <td>Sell</td>
                                         </tr>

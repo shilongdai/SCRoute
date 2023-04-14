@@ -45,15 +45,15 @@ function InputSection({onSubmit, lockForm, highLevelPlan, formError, setFormErro
 
     useEffect(() => {
         setLocations([...locations])
-    }, [locOptions]);
+    }, [locations, locOptions]);
 
     useEffect(() => {
         setCommodities([...commodities])
-    }, [comOptions]);
+    }, [commodities, comOptions]);
 
     useEffect(() => {
         setRestrictions([...restrictions])
-    }, [comOptions, locOptions]);
+    }, [restrictions, comOptions, locOptions]);
 
     const handleRangeChange = (value) => {
         setRange(value);

@@ -43,18 +43,6 @@ function InputSection({onSubmit, lockForm, highLevelPlan, formError, setFormErro
         dataFetch(location_url).then(d => setLocOptions(d))
     }, [filter]);
 
-    useEffect(() => {
-        setLocations([...locations])
-    }, [locations, locOptions]);
-
-    useEffect(() => {
-        setCommodities([...commodities])
-    }, [commodities, comOptions]);
-
-    useEffect(() => {
-        setRestrictions([...restrictions])
-    }, [restrictions, comOptions, locOptions]);
-
     const handleRangeChange = (value) => {
         setRange(value);
     };

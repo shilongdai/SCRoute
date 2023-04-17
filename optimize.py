@@ -115,7 +115,7 @@ class HighLevelPlanner(RoutePlanner):
         self._init_demand = np.array(self.demand)
 
     def plan_stage_one(self, cargo, max_percent=0.2, max_commodity=None, blk_locations=(),
-                       max_com_loc=None, max_level=2, n_stop=3):
+                       max_com_loc=None, max_level=2, n_stop=3, max_profit=10**20):
         self._B.value = np.array(self.buy_price)
         self._S.value = np.array(self.sell_price)
         self._D.value = np.array(self.demand)
@@ -138,6 +138,10 @@ class HighLevelPlanner(RoutePlanner):
             self._P.value[:, loc_idx] = 0
         self._Wb.value = self._buy_weight
         self._Ws.value = self._sell_weight
+        return self.resolve_max_profit(max_profit)
+
+    def resolve_max_profit(self, max_profit):
+        self._MP.value = max_profit
         profit = self._prob_one.solve(solver=self.solver, ignore_dpp=self.ignore_dpp)
         if math.isfinite(profit):
             self._I.value[np.where(self._I.value < EPSILON)] = 0
@@ -181,8 +185,9 @@ class HighLevelPlanner(RoutePlanner):
 
     def _formulate_step_one(self):
         self._C = cp.Parameter(nonneg=True, name="C")
-        self._ML = cp.Parameter(name="ML")
-        self._NS = cp.Parameter(name="NS")
+        self._ML = cp.Parameter(name="ML", nonneg=True)
+        self._NS = cp.Parameter(name="NS", nonneg=True)
+        self._MP = cp.Parameter(name="MP", nonneg=True)
         self._M = len(self.shops_idx)
         self._N = len(self.commodities_idx)
         self._Q = cp.Parameter((self._N, self._M), nonneg=True, name="Q")
@@ -249,6 +254,10 @@ class HighLevelPlanner(RoutePlanner):
         # (9)
         constraints.append(
             cp.sum(self._X) == self._NS
+        )
+
+        constraints.append(
+            cp.sum(cp.multiply(self._L, self._S)) - cp.sum(cp.multiply(self._I, self._B)) <= self._MP
         )
 
         self._prob_one = cp.Problem(objective, constraints)
@@ -517,6 +526,12 @@ def null_solver(**kwargs):
     return DEFAULT_RESULT
 
 
+def max_cargo_util(routes):
+    max_cargo = 0
+    for r in routes:
+        pass
+
+
 def get_solver(filter_regex):
     try:
         _ = local.solver_cache
@@ -539,20 +554,42 @@ def get_solver(filter_regex):
         print(e)
         return null_solver
 
-    def solve_problem(max_cargo, max_stops, max_range, blk_locs, com_restricts, restrictions):
-        _, plan = ts_planner.plan_stage_one(max_cargo, max_percent=1,
-                                            n_stop=max_stops,
-                                            max_level=max_range,
-                                            blk_locations=blk_locs,
-                                            max_commodity=com_restricts,
-                                            max_com_loc=restrictions)
+    def solve_problem(max_cargo, max_stops, max_range, blk_locs, com_restricts, restrictions,
+                      bisection_step=0.1, bisection_end=0.01):
+        init_profit, plan = ts_planner.plan_stage_one(max_cargo, max_percent=1,
+                                                      n_stop=max_stops,
+                                                      max_level=max_range,
+                                                      blk_locations=blk_locs,
+                                                      max_commodity=com_restricts,
+                                                      max_com_loc=restrictions)
         if plan is None or len(plan.buy) == 0:
             return DEFAULT_RESULT
         num_max = 1
         cost, routes = tl_planner.plan_route(max_cargo, num_max, plan)
-        while routes is None:
-            num_max = num_max + 1
-            cost, routes = tl_planner.plan_route(max_cargo, num_max, plan)
+        if routes is None:
+            prev_profit = init_profit
+            max_profit = init_profit
+            step = -bisection_step * max_profit
+            delta = bisection_end * init_profit
+
+            while routes is None:
+                max_profit = max_profit + step
+                profit, plan = ts_planner.resolve_max_profit(max_profit)
+                cost, routes = tl_planner.plan_route(max_cargo, num_max, plan)
+                prev_profit = profit
+
+            window_up = init_profit
+            window_down = prev_profit
+            while window_up - window_down > delta and routes is None:
+                max_profit = (window_down + window_up) / 2
+                profit, plan = ts_planner.resolve_max_profit(max_profit)
+                cost, routes = tl_planner.plan_route(max_cargo, num_max, plan)
+
+                if routes is None:
+                    window_up = max_profit
+                else:
+                    window_down = max_profit
+
         return plan, routes
 
     return solve_problem

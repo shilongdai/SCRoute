@@ -50,6 +50,11 @@ class RoutePlanner:
                 self.supply[self.commodities_idx[sl.name], self.shops_idx[s.path]] = sl.stock
                 self.buy_price[self.commodities_idx[sl.name], self.shops_idx[s.path]] = sl.price
 
+    def create_weights(self):
+        buy_weight = np.divide(1, self.supply, out=np.zeros_like(self.supply), where=self.supply != 0)
+        sell_weight = np.divide(1, self.demand, out=np.zeros_like(self.demand), where=self.demand != 0)
+        return buy_weight, sell_weight
+
     def update_supply(self, good, location, amount):
         if good not in self.commodities_idx:
             raise KeyError("%s not found" % good)
@@ -102,167 +107,6 @@ def compute_travel_cost(paths, path_idx):
     return result
 
 
-class HighLevelPlanner(RoutePlanner):
-
-    def __init__(self, shops, solver=None, ignore_dpp=None):
-        RoutePlanner.__init__(self, shops)
-        self._create_weights()
-        self._formulate_step_one()
-        self._trv_c = compute_travel_cost([s.path for s in shops], self.shops_idx)
-        self.solver = solver
-        self._init_supply = np.array(self.supply)
-        self.ignore_dpp = ignore_dpp
-        self._init_demand = np.array(self.demand)
-
-    def plan_stage_one(self, cargo, max_percent=0.2, max_commodity=None, blk_locations=(),
-                       max_com_loc=None, max_level=2, n_stop=3, max_profit=10**20):
-        self._B.value = np.array(self.buy_price)
-        self._S.value = np.array(self.sell_price)
-        self._D.value = np.array(self.demand)
-        self._P.value = np.array(self.supply)
-        self._R.value = self._trv_c
-        self._C.value = cargo
-        self._ML.value = max_level
-        self._NS.value = n_stop
-        self._Q.value = np.ones((self._N, self._M)) * max_percent
-        if max_commodity is not None:
-            for k, percent in max_commodity.items():
-                self._Q.value[self.commodities_idx[k], :] = percent
-        if max_com_loc is not None:
-            for k, locs in max_com_loc.items():
-                for l, amount in locs.items():
-                    self._Q.value[self.commodities_idx[k], self.shops_idx[l]] = amount
-        for loc in blk_locations:
-            loc_idx = self.shops_idx[loc]
-            self._D.value[:, loc_idx] = 0
-            self._P.value[:, loc_idx] = 0
-        self._Wb.value = self._buy_weight
-        self._Ws.value = self._sell_weight
-        return self.resolve_max_profit(max_profit)
-
-    def resolve_max_profit(self, max_profit):
-        self._MP.value = max_profit
-        profit = self._prob_one.solve(solver=self.solver, ignore_dpp=self.ignore_dpp)
-        if math.isfinite(profit):
-            self._I.value[np.where(self._I.value < EPSILON)] = 0
-            self._L.value[np.where(self._L.value < EPSILON)] = 0
-            return profit, self._extract_stage_one()
-        return profit, None
-
-    def zero_stock(self, buy, sell):
-        for t in buy:
-            com_idx = self.commodities_idx[t.com_idx]
-            loc_idx = self.shops_idx[t.loc_idx]
-            self.supply[com_idx, loc_idx] = 0
-        for t in sell:
-            com_idx = self.commodities_idx[t.com_idx]
-            loc_idx = self.shops_idx[t.loc_idx]
-            self.demand[com_idx, loc_idx] = 0
-
-    def reset_stock(self):
-        self.supply = np.array(self._init_supply)
-        self.demand = np.array(self._init_demand)
-
-    def _extract_stage_one(self):
-        buy_transactions = []
-        sell_transactions = []
-
-        for com, loc in zip(*np.nonzero(self._I.value)):
-            buy_transactions.append(Transaction(self.shops_rev_idx[loc],
-                                                self.commodities_rev_idx[com],
-                                                self._I.value[com, loc]))
-        for com, loc in zip(*np.nonzero(self._L.value)):
-            sell_transactions.append(Transaction(self.shops_rev_idx[loc],
-                                                 self.commodities_rev_idx[com],
-                                                 self._L.value[com, loc]))
-        revenue = np.sum(np.multiply(self._L.value, self._S.value))
-        cost = np.sum(np.multiply(self._I.value, self._B.value))
-        return HighLevelPlan(cost, revenue, buy_transactions, sell_transactions)
-
-    def _create_weights(self):
-        self._buy_weight = np.divide(1, self.supply, out=np.zeros_like(self.supply), where=self.supply != 0)
-        self._sell_weight = np.divide(1, self.demand, out=np.zeros_like(self.demand), where=self.demand != 0)
-
-    def _formulate_step_one(self):
-        self._C = cp.Parameter(nonneg=True, name="C")
-        self._ML = cp.Parameter(name="ML", nonneg=True)
-        self._NS = cp.Parameter(name="NS", nonneg=True)
-        self._MP = cp.Parameter(name="MP", nonneg=True)
-        self._M = len(self.shops_idx)
-        self._N = len(self.commodities_idx)
-        self._Q = cp.Parameter((self._N, self._M), nonneg=True, name="Q")
-        self._Wb = cp.Parameter((self._N, self._M), nonneg=True, name="Wb")
-        self._Ws = cp.Parameter((self._N, self._M), nonneg=True, name="Ws")
-
-        self._B = cp.Parameter((self._N, self._M), nonneg=True, name="B")
-        self._S = cp.Parameter((self._N, self._M), nonneg=True, name="S")
-        self._D = cp.Parameter((self._N, self._M), nonneg=True, name="D")
-        self._P = cp.Parameter((self._N, self._M), nonneg=True, name="P")
-        self._R = cp.Parameter((self._M, self._M), nonneg=True, name="R")
-
-        self._I = cp.Variable((self._N, self._M), nonneg=True)
-        self._L = cp.Variable((self._N, self._M), nonneg=True)
-        self._X = cp.Variable(self._M, boolean=True)
-        self._A = cp.Variable((self._M, self._M), boolean=True)
-
-        objective = cp.Maximize(cp.sum(cp.multiply(self._L, self._S)) - cp.sum(cp.multiply(self._I, self._B)))
-
-        constraints = []
-
-        # (1)
-        constraints.append(
-            cp.sum(self._I, axis=1) == cp.sum(self._L, axis=1)
-        )
-
-        # (2)
-        constraints.append(
-            cp.sum(self._I, axis=0) <= self._C
-        )
-
-        # (3)
-        constraints.append(
-            cp.sum(self._L, axis=0) <= self._C
-        )
-
-        # (4)
-        constraints.append(
-            cp.sum(self._L, axis=0) + cp.sum(self._I, axis=0) <= 10 * self._C * self._X
-        )
-
-        for i in range(self._M):
-            for j in range(i + 1, self._M):
-                constraints.append((1 - self._A[i, j]) <= (1 - self._X[i]) + (1 - self._X[j]))
-
-        constraints.append(
-            cp.multiply(self._A, self._R) <= self._ML
-        )
-
-        # (5)
-        constraints.append(
-            cp.multiply(self._L, self._Ws) <= self._Q
-        )
-        constraints.append(
-            cp.multiply(self._I, self._Wb) <= self._Q
-        )
-
-        # (6)
-        constraints.append(self._I <= self._P)
-
-        # (7)
-        constraints.append(self._L <= self._D)
-
-        # (9)
-        constraints.append(
-            cp.sum(self._X) == self._NS
-        )
-
-        constraints.append(
-            cp.sum(cp.multiply(self._L, self._S)) - cp.sum(cp.multiply(self._I, self._B)) <= self._MP
-        )
-
-        self._prob_one = cp.Problem(objective, constraints)
-
-
 def build_idx(transactions):
     locations = set()
     commodities = set()
@@ -281,6 +125,308 @@ def build_idx(transactions):
         com_rev_idx[i] = p
 
     return shop_idx, shop_rev_idx, com_idx, com_rev_idx
+
+
+class HighLevelPlanner(RoutePlanner):
+
+    def __init__(self, shops, solver=None, ignore_dpp=None):
+        RoutePlanner.__init__(self, shops)
+        self._buy_weight, self._sell_weight = self.create_weights()
+        self.init_solve = self._formulate_step_one()
+        self._trv_c = compute_travel_cost([s.path for s in shops], self.shops_idx)
+        self.solver = solver
+        self._init_supply = np.array(self.supply)
+        self.ignore_dpp = ignore_dpp
+        self._init_demand = np.array(self.demand)
+
+    def plan_stage_one(self, cargo, max_percent=0.2, max_commodity=None, blk_locations=(),
+                       max_com_loc=None, max_level=2, n_stop=3):
+        self._init_basic(self.init_solve, cargo, max_percent=max_percent, max_commodity=max_commodity,
+                         blk_locations=blk_locations, max_com_loc=max_com_loc)
+        self.init_solve.param_dict["R"].value = self._trv_c
+        self.init_solve.param_dict["ML"].value = max_level
+        self.init_solve.param_dict["NS"].value = n_stop
+
+        profit = self.init_solve.solve(solver=self.solver, ignore_dpp=self.ignore_dpp)
+        if math.isfinite(profit):
+            self.init_solve.var_dict["I"].value[np.where(self.init_solve.var_dict["I"].value < EPSILON)] = 0
+            self.init_solve.var_dict["L"].value[np.where(self.init_solve.var_dict["L"].value < EPSILON)] = 0
+            return profit, self._extract_plan(self.shops_rev_idx, self.commodities_rev_idx,
+                                              self.init_solve.var_dict["I"], self.init_solve.var_dict["L"],
+                                              self.init_solve.param_dict["S"],
+                                              self.init_solve.param_dict["B"])
+        return profit, None
+
+    def plan_refinement(self, plan, cargo, max_percent=0.2, max_commodity=None, blk_locations=(),
+                        max_com_loc=None):
+        shop_idx, shop_rev_idx, com_idx, com_rev_idx = build_idx([t for t in plan.buy] +
+                                                                 [t for t in plan.sell])
+
+        if max_commodity is not None:
+            max_commodity = {k: v for k, v in max_commodity.items() if k in com_idx}
+
+        blk_locations = [l for l in blk_locations if l in shop_idx]
+
+        if max_com_loc is not None:
+            temp = {}
+            for k, locs in max_com_loc.items():
+                if k not in com_idx:
+                    continue
+                temp[k] = {}
+                for l, amount in locs.items():
+                    if l not in shop_idx:
+                        continue
+                    temp[k][l] = amount
+
+            max_com_loc = temp
+
+        refinement_prob = self._formulate_refinement(n_locs=len(shop_idx), n_coms=len(com_idx))
+
+        shop_selector = [self.shops_idx[shop_rev_idx[i]] for i in range(len(shop_idx))]
+        com_selector = [self.commodities_idx[com_rev_idx[i]] for i in range(len(com_idx))]
+        self._init_basic(refinement_prob, cargo, max_percent=max_percent, max_commodity=max_commodity,
+                         blk_locations=blk_locations,
+                         max_com_loc=max_com_loc, com_idx=com_idx, shop_idx=shop_idx, rows=com_selector,
+                         cols=shop_selector)
+        profit = refinement_prob.solve(solver=self.solver)
+        if math.isfinite(profit):
+            refinement_prob.var_dict["I"].value[np.where(refinement_prob.var_dict["I"].value < EPSILON)] = 0
+            refinement_prob.var_dict["L"].value[np.where(refinement_prob.var_dict["L"].value < EPSILON)] = 0
+            return profit, self._extract_plan(shop_rev_idx, com_rev_idx,
+                                              refinement_prob.var_dict["I"], refinement_prob.var_dict["L"],
+                                              refinement_prob.param_dict["S"],
+                                              refinement_prob.param_dict["B"])
+        return profit, None
+
+    def _init_basic(self, problem, cargo, max_percent=0.2, max_commodity=None, blk_locations=(),
+                    max_com_loc=None, com_idx=None, shop_idx=None, rows=None, cols=None):
+        buy_price = self.buy_price
+        sell_price = self.sell_price
+        demand = self.demand
+        supply = self.supply
+        buy_weight = self._buy_weight
+        sell_weight = self._sell_weight
+
+        if rows is not None:
+            buy_price = buy_price[rows, :]
+            sell_price = sell_price[rows, :]
+            demand = demand[rows, :]
+            supply = supply[rows, :]
+            buy_weight = buy_weight[rows, :]
+            sell_weight = sell_weight[rows, :]
+
+        if cols is not None:
+            buy_price = buy_price[:, cols]
+            sell_price = sell_price[:, cols]
+            demand = demand[:, cols]
+            supply = supply[:, cols]
+            buy_weight = buy_weight[:, cols]
+            sell_weight = sell_weight[:, cols]
+
+        if com_idx is None:
+            com_idx = self.commodities_idx
+        if shop_idx is None:
+            shop_idx = self.shops_idx
+
+        problem.param_dict["B"].value = buy_price
+        problem.param_dict["S"].value = sell_price
+        problem.param_dict["D"].value = demand
+        problem.param_dict["P"].value = supply
+        problem.param_dict["Wb"].value = buy_weight
+        problem.param_dict["Ws"].value = sell_weight
+        problem.param_dict["C"].value = cargo
+        problem.param_dict["Q"].value = np.ones((len(com_idx), len(shop_idx))) * max_percent
+        if max_commodity is not None:
+            for k, percent in max_commodity.items():
+                problem.param_dict["Q"].value[com_idx[k], :] = percent
+        if max_com_loc is not None:
+            for k, locs in max_com_loc.items():
+                for l, amount in locs.items():
+                    problem.param_dict["Q"].value[com_idx[k], shop_idx[l]] = amount
+        for loc in blk_locations:
+            loc_idx = shop_idx[loc]
+            problem.param_dict["D"].value[:, loc_idx] = 0
+            problem.param_dict["P"].value[:, loc_idx] = 0
+
+    def _extract_plan(self, shop_rev_idx, com_rev_idx, I, L, S, B):
+        buy_transactions = []
+        sell_transactions = []
+
+        for com, loc in zip(*np.nonzero(I.value)):
+            buy_transactions.append(Transaction(shop_rev_idx[loc],
+                                                com_rev_idx[com],
+                                                I.value[com, loc]))
+        for com, loc in zip(*np.nonzero(L.value)):
+            sell_transactions.append(Transaction(shop_rev_idx[loc],
+                                                 com_rev_idx[com],
+                                                 L.value[com, loc]))
+        revenue = np.sum(np.multiply(L.value, S.value))
+        cost = np.sum(np.multiply(I.value, B.value))
+        return HighLevelPlan(cost, revenue, buy_transactions, sell_transactions)
+
+    def _formulate_step_one(self):
+        C = cp.Parameter(nonneg=True, name="C")
+        ML = cp.Parameter(name="ML", nonneg=True)
+        NS = cp.Parameter(name="NS", nonneg=True)
+        M = len(self.shops_idx)
+        N = len(self.commodities_idx)
+        Q = cp.Parameter((N, M), nonneg=True, name="Q")
+        Wb = cp.Parameter((N, M), nonneg=True, name="Wb")
+        Ws = cp.Parameter((N, M), nonneg=True, name="Ws")
+
+        B = cp.Parameter((N, M), nonneg=True, name="B")
+        S = cp.Parameter((N, M), nonneg=True, name="S")
+        D = cp.Parameter((N, M), nonneg=True, name="D")
+        P = cp.Parameter((N, M), nonneg=True, name="P")
+        R = cp.Parameter((M, M), nonneg=True, name="R")
+
+        I = cp.Variable((N, M), nonneg=True, name="I")
+        L = cp.Variable((N, M), nonneg=True, name="L")
+        X = cp.Variable(M, boolean=True, name="X")
+        A = cp.Variable((M, M), boolean=True, name="A")
+
+        objective = cp.Maximize(cp.sum(cp.multiply(L, S)) - cp.sum(cp.multiply(I, B)))
+
+        constraints = []
+
+        # (1)
+        constraints.append(
+            cp.sum(I, axis=1) == cp.sum(L, axis=1)
+        )
+
+        # (2)
+        constraints.append(
+            cp.sum(I, axis=0) <= C
+        )
+
+        # (3)
+        constraints.append(
+            cp.sum(L, axis=0) <= C
+        )
+
+        # (4)
+        constraints.append(
+            cp.sum(L, axis=0) + cp.sum(I, axis=0) <= 10 * C * X
+        )
+
+        for i in range(M):
+            for j in range(i + 1, M):
+                constraints.append((1 - A[i, j]) <= (1 - X[i]) + (1 - X[j]))
+
+        constraints.append(
+            cp.multiply(A, R) <= ML
+        )
+
+        # (5)
+        constraints.append(
+            cp.multiply(L, Ws) <= Q
+        )
+        constraints.append(
+            cp.multiply(I, Wb) <= Q
+        )
+
+        # (6)
+        constraints.append(I <= P)
+
+        # (7)
+        constraints.append(L <= D)
+
+        # (9)
+        constraints.append(
+            cp.sum(X) == NS
+        )
+
+        return cp.Problem(objective, constraints)
+
+    def _formulate_refinement(self, n_locs, n_coms):
+        B = cp.Parameter((n_coms, n_locs), nonneg=True, name="B")
+        S = cp.Parameter((n_coms, n_locs), nonneg=True, name="S")
+        D = cp.Parameter((n_coms, n_locs), nonneg=True, name="D")
+        P = cp.Parameter((n_coms, n_locs), nonneg=True, name="P")
+        Q = cp.Parameter((n_coms, n_locs), nonneg=True, name="Q")
+        Wb = cp.Parameter((n_coms, n_locs), nonneg=True, name="Wb")
+        Ws = cp.Parameter((n_coms, n_locs), nonneg=True, name="Ws")
+        C = cp.Parameter(nonneg=True, name="C")
+
+        MCF = [cp.Variable((n_locs + 2, n_locs + 2), nonneg=True) for _ in
+               range(n_locs + 2)]
+        F = [cp.Variable((n_locs, n_locs), nonneg=True) for _ in range(n_coms)]
+        X = cp.Variable((n_locs + 2, n_locs + 2), boolean=True, name="X")
+        I = cp.Variable((n_coms, n_locs), nonneg=True, name="I")
+        L = cp.Variable((n_coms, n_locs), nonneg=True, name="L")
+
+        objective = cp.Maximize(cp.sum(cp.multiply(L, S)) - cp.sum(cp.multiply(I, B)))
+
+        constraints = []
+
+        # (1)
+        constraints.append(
+            cp.sum(X[:-1, :], axis=1) == 1
+        )
+
+        # (2)
+        constraints.append(
+            cp.sum(X[:, :-2], axis=0) == 1
+        )
+
+        constraints.append(cp.sum(X[:, -1]) == 1)
+        constraints.append(cp.sum(X[-1, :]) == 0)
+        constraints.append(cp.sum(X[-2, :]) == 1)
+        constraints.append(cp.sum(X[:, -2]) == 0)
+
+        k_range = list(range(0, n_locs + 2))
+        k_range.remove(n_locs)
+        for flow in MCF:
+            constraints.append(X >= flow)
+
+        for k in k_range:
+            constraints.append(
+                cp.sum(MCF[k][n_locs, :]) == 1
+            )
+
+        for k in k_range:
+            constraints.append(
+                cp.sum(MCF[k][:, k]) == 1
+            )
+
+        for k in k_range:
+            j_range = list(range(0, n_locs))
+            j_range.append(n_locs + 1)
+            j_range.remove(k)
+            for j in j_range:
+                constraints.append(
+                    cp.sum(MCF[k][:, j]) ==
+                    cp.sum(MCF[k][j, :]) - MCF[k][j, n_locs]
+                )
+
+        # (3)
+        for flow in F:
+            constraints.append(10 * C * X[:-2, :-2] >= flow)
+
+        # (4)
+        for g, flow in enumerate(F):
+            for j in range(n_locs):
+                constraints.append(
+                    cp.sum(flow[j, :]) - cp.sum(flow[:, j]) == I[g, j] - L[g, j]
+                )
+
+        # (5) (6)
+        constraints.append(I <= P)
+        constraints.append(L <= D)
+        constraints.append(
+            cp.multiply(L, Ws) <= Q
+        )
+        constraints.append(
+            cp.multiply(I, Wb) <= Q
+        )
+
+        # (7)
+        agg_flow = sum(F)
+        constraints.append(
+            cp.sum(agg_flow, axis=1) <= C
+        )
+
+        return cp.Problem(objective, constraints)
 
 
 class LowLevelRoutePlanner:
@@ -465,7 +611,6 @@ with open("shops.json", "r") as fp:
 
         shops.append(Shop(path, buys, sells))
 
-
 shop_buy_index = {}
 for i, s in enumerate(shops):
     shop_buy_index[s.path] = {}
@@ -474,7 +619,6 @@ for i, s in enumerate(shops):
         if c.name not in shop_buy_index[s.path]:
             shop_buy_index[s.path][c.name] = (i, j)
 
-
 shop_sell_index = {}
 for i, s in enumerate(shops):
     shop_sell_index[s.path] = {}
@@ -482,7 +626,6 @@ for i, s in enumerate(shops):
     for j, c in enumerate(s.buys):
         if c.name not in shop_sell_index[s.path]:
             shop_sell_index[s.path][c.name] = (i, j)
-
 
 local = threading.local()
 
@@ -526,12 +669,6 @@ def null_solver(**kwargs):
     return DEFAULT_RESULT
 
 
-def max_cargo_util(routes):
-    max_cargo = 0
-    for r in routes:
-        pass
-
-
 def get_solver(filter_regex):
     try:
         _ = local.solver_cache
@@ -554,42 +691,26 @@ def get_solver(filter_regex):
         print(e)
         return null_solver
 
-    def solve_problem(max_cargo, max_stops, max_range, blk_locs, com_restricts, restrictions,
-                      bisection_step=0.1, bisection_end=0.01):
-        init_profit, plan = ts_planner.plan_stage_one(max_cargo, max_percent=1,
-                                                      n_stop=max_stops,
-                                                      max_level=max_range,
-                                                      blk_locations=blk_locs,
-                                                      max_commodity=com_restricts,
-                                                      max_com_loc=restrictions)
+    def solve_problem(max_cargo, max_stops, max_range, blk_locs, com_restricts, restrictions):
+        _, plan = ts_planner.plan_stage_one(max_cargo, max_percent=1,
+                                            n_stop=max_stops,
+                                            max_level=max_range,
+                                            blk_locations=blk_locs,
+                                            max_commodity=com_restricts,
+                                            max_com_loc=restrictions)
+        if plan is None or len(plan.buy) == 0:
+            return DEFAULT_RESULT
+        _, plan = ts_planner.plan_refinement(plan, max_cargo, max_percent=1,
+                                             blk_locations=blk_locs,
+                                             max_commodity=com_restricts,
+                                             max_com_loc=restrictions)
         if plan is None or len(plan.buy) == 0:
             return DEFAULT_RESULT
         num_max = 1
         cost, routes = tl_planner.plan_route(max_cargo, num_max, plan)
-        if routes is None:
-            prev_profit = init_profit
-            max_profit = init_profit
-            step = -bisection_step * max_profit
-            delta = bisection_end * init_profit
-
-            while routes is None:
-                max_profit = max_profit + step
-                profit, plan = ts_planner.resolve_max_profit(max_profit)
-                cost, routes = tl_planner.plan_route(max_cargo, num_max, plan)
-                prev_profit = profit
-
-            window_up = init_profit
-            window_down = prev_profit
-            while window_up - window_down > delta and routes is None:
-                max_profit = (window_down + window_up) / 2
-                profit, plan = ts_planner.resolve_max_profit(max_profit)
-                cost, routes = tl_planner.plan_route(max_cargo, num_max, plan)
-
-                if routes is None:
-                    window_up = max_profit
-                else:
-                    window_down = max_profit
-
+        while routes is None:
+            num_max = num_max + 1
+            cost, routes = tl_planner.plan_route(max_cargo, num_max, plan)
         return plan, routes
 
     return solve_problem

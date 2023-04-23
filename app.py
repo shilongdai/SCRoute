@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, after_this_request
 from optimize import *
 
 
@@ -131,6 +131,11 @@ def optimize():
         "plan": convert_plan(plan),
         "routes": convert_route(routes)
     }
+
+    @after_this_request
+    def add_header(response):
+        response.cache_control.no_cache = True
+        return response
 
     return jsonify(final_map)
 
